@@ -4,3 +4,5 @@ build/
 *.pyc
 *.log
 *.txt
+GEMINI.md
+CHANGES.md

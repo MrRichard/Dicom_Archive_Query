@@ -9,6 +9,7 @@ setup(
         'click',
         'pydicom',
         'pynetdicom',
+        'tqdm',
     ],
     entry_points={
         'console_scripts': [
