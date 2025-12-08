@@ -1,0 +1,4 @@
+click
+pydicom
+pynetdicom
+tqdm

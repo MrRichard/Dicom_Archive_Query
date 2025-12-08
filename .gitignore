@@ -3,6 +3,6 @@
 build/
 *.pyc
 *.log
-*.txt
+results.txt
 GEMINI.md
 CHANGES.md
