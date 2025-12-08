@@ -10,6 +10,7 @@ setup(
         'pydicom',
         'pynetdicom',
         'tqdm',
+        'rich',
     ],
     entry_points={
         'console_scripts': [

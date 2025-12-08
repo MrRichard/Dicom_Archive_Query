@@ -21,8 +21,9 @@ def cli(ctx, config_file):
 @cli.command()
 @click.option('--archive', required=True, type=click.Path(exists=True, file_okay=False), help='Path to DICOM archive directory.')
 @click.option('--append', is_flag=True, help='Append to existing database.')
+@click.option('--threads', default=4, type=int, help='Number of threads to use for indexing.')
 @click.pass_context
-def index(ctx, archive, append):
+def index(ctx, archive, append, threads):
     """Index a DICOM archive."""
     cfg = ctx.obj['config']
     db_path = cfg['DEFAULT']['database']
@@ -34,7 +35,7 @@ def index(ctx, archive, append):
         
     cfg['DEFAULT']['archive_path'] = archive
     
-    indexer.index_archive(archive, db_path, append)
+    indexer.index_archive(archive, db_path, append, threads)
     config.save_config(cfg, ctx.obj['config_file'])
     click.echo(f"Configuration saved to {ctx.obj['config_file']}")
 

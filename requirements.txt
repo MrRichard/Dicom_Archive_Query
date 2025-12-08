@@ -2,3 +2,4 @@ click
 pydicom
 pynetdicom
 tqdm
+rich
