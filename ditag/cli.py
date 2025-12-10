@@ -4,9 +4,17 @@ from . import config
 from . import indexer
 from . import querier
 from . import sender
+from . import project
+from . import reporter
+from . import downloader
 
-@click.group()
-@click.option('--config-file', type=click.Path(), default=config.DEFAULT_CONFIG_FILE, help='Path to config file.')
+class NaturalOrderGroup(click.Group):
+    """A group that lists commands in the order they are added."""
+    def list_commands(self, ctx):
+        return list(self.commands)
+
+@click.group(cls=NaturalOrderGroup)
+@click.option('--config-file', type=click.Path(), default=config.DEFAULT_MAIN_CONFIG_FILE, help='Path to config file.')
 @click.pass_context
 def cli(ctx, config_file):
     """A CLI tool for indexing, querying, and sending DICOM files."""
@@ -17,9 +25,8 @@ def cli(ctx, config_file):
         ctx.obj['config'] = config.get_default_config()
     ctx.obj['config_file'] = config_file
 
-
 @cli.command()
-@click.option('--archive', required=True, type=click.Path(exists=True, file_okay=False), help='Path to DICOM archive directory.')
+@click.option('--archive', type=click.Path(exists=True, file_okay=False), help='Path to DICOM archive directory.')
 @click.option('--append', is_flag=True, help='Append to existing database.')
 @click.option('--threads', default=4, type=int, help='Number of threads to use for indexing.')
 @click.pass_context
@@ -28,7 +35,6 @@ def index(ctx, archive, append, threads):
     cfg = ctx.obj['config']
     db_path = cfg['DEFAULT']['database']
     
-    # Ensure the directory for the database exists
     db_dir = os.path.dirname(db_path)
     if not os.path.exists(db_dir):
         os.makedirs(db_dir)
@@ -39,6 +45,33 @@ def index(ctx, archive, append, threads):
     config.save_config(cfg, ctx.obj['config_file'])
     click.echo(f"Configuration saved to {ctx.obj['config_file']}")
 
+@cli.group(cls=NaturalOrderGroup, name='project')
+def project_group():
+    """Commands for managing projects."""
+    pass
+
+@project_group.command(name='index')
+@click.option('--project-name', required=True, help='Project name for PACS indexing.')
+@click.option('--pacs', required=True, help='PACS IP or hostname for project-based indexing.')
+@click.option('--port', required=True, type=int, help='PACS port for project-based indexing.')
+@click.option('--aetitle', required=True, help='PACS AE title for project-based indexing.')
+@click.option('--target-list', required=True, type=click.Path(exists=True, dir_okay=False), help='Text file with list of accession numbers for project-based indexing.')
+@click.pass_context
+def project_index(ctx, project_name, pacs, port, aetitle, target_list):
+    """Index a project from PACS."""
+    click.echo(f"Creating project '{project_name}'...")
+    proj_config = project.create_project(project_name, pacs, port, aetitle, target_list)
+    
+    click.echo(f"Indexing project '{project_name}' from PACS...")
+    indexer.index_pacs(proj_config)
+    click.echo("Project indexing complete.")
+
+@project_group.command(name='report')
+@click.option('--project-name', required=True, help='Project name to generate report for.')
+@click.option('--get-cost', type=float, help='Set cost per study and include in report.')
+def project_report(project_name, get_cost):
+    """Generate a summary report for a project."""
+    reporter.generate_report(project_name, get_cost)
 
 @cli.command()
 @click.option('--sdate', help='Start date (YYYYMMDD).')
@@ -47,17 +80,33 @@ def index(ctx, archive, append, threads):
 @click.option('--targets', help='Comma-separated list of tags to search (e.g., SeriesDescription,StudyDescription).')
 @click.option('--pattern', help='Regular expression pattern to search.')
 @click.option('--output', type=click.Path(), help='Output file for results (CSV).')
+@click.option('--project-name', help='Project name to query.')
 @click.pass_context
-def query(ctx, sdate, edate, date, targets, pattern, output):
+def query(ctx, sdate, edate, date, targets, pattern, output, project_name):
     """Query the DICOM index."""
-    cfg = ctx.obj['config']
-    db_path = cfg['DEFAULT']['database']
+    if project_name:
+        db_path = project.get_project_db_path(project_name)
+    else:
+        cfg = ctx.obj['config']
+        db_path = cfg['DEFAULT']['database']
     
     if targets:
         targets = targets.split(',')
 
     querier.query_db(db_path, sdate, edate, date, targets, pattern, output)
 
+project_group.add_command(query)
+
+@project_group.command(name='download')
+@click.option('--project-name', required=True, help='Project name to download.')
+@click.option('--threads', default=4, type=int, help='Number of threads for downloading.')
+@click.option('--output', required=True, type=click.Path(file_okay=False), help='Output directory for downloaded files.')
+@click.option('--my-aet', default='DITAG', help='My AE Title for the SCP.')
+@click.option('--scp-port', default=11112, type=int, help='Port for the SCP.')
+@click.option('--input', type=click.Path(exists=True, dir_okay=False), help='Input file with series to download (CSV).')
+def project_download(project_name, threads, output, my_aet, scp_port, input):
+    """Download data for a project from PACS."""
+    downloader.download_project(project_name, threads, output, my_aet, scp_port, input)
 
 @cli.command()
 @click.option('--destination', help='PACS destination address.')

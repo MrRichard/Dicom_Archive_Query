@@ -3,3 +3,4 @@ pydicom
 pynetdicom
 tqdm
 rich
+PyYAML

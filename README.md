@@ -71,6 +71,7 @@ The `query` command searches the indexed DICOM metadata.
 *   `--targets`: A comma-separated list of DICOM tags to search (e.g., `StudyDescription`, `SeriesDescription`).
 *   `--pattern`: A regular expression to match against the target tags.
 *   `--output`: A file path to save the results in CSV format.
+*   `--project-name`: The name of a project to query.
 
 **Example 1: Search by date range and regex**
 
@@ -116,4 +117,82 @@ This command queries for all series from a specific date and pipes the results d
 
 ```bash
 ditag query --date="19820111" | ditag send
+```
+
+## Project-Based PACS Operations
+
+The `ditag` tool provides a set of commands to manage projects that involve interacting with a PACS.
+
+### `project index`
+
+The `project index` command creates a new project, queries a PACS for a list of accession numbers, and indexes the metadata into a project-specific database.
+
+**Example:**
+
+```bash
+ditag project index --project-name CustomerName --pacs 10.0.0.1 --port 11112 --aetitle PACSAET --target-list get_me_these.txt
+```
+
+This will:
+- Create a new project named `CustomerName`.
+- Create a project configuration file at `~/.ditag/projects/CustomerName/CustomerName.yml`.
+- Create a new database at `~/.ditag/projects/CustomerName/CustomerName.db`.
+- Query the PACS at `10.0.0.1:11112` for the accession numbers listed in `get_me_these.txt`.
+- Index the found series metadata into the project database.
+
+### `project report`
+
+The `project report` command generates a summary report for a project.
+
+**Example:**
+
+```bash
+ditag project report --project-name CustomerName
+```
+
+This will output a report to the console and save it to `~/.ditag/projects/CustomerName/CustomerName_report.txt`.
+The report includes the number of studies found, unique patients, and top series descriptions.
+
+You can also set a cost per study and get an estimated total cost:
+```bash
+ditag project report --project-name CustomerName --get-cost 0.50
+```
+This will save the cost to the project configuration file for future reports.
+
+### `project download`
+
+The `project download` command downloads the imaging data for a project from the PACS.
+
+**Example: Download all data for a project**
+
+```bash
+ditag project download --project-name CustomerName --threads 6 --output /mnt/Download/
+```
+
+This will start a local SCP on port 11112 (by default) with AE title `DITAG` (by default) to receive the files. It will then send C-MOVE requests to the PACS to download all series indexed in the project. The files will be saved in a new directory `/mnt/Download/CustomerName_<date>`.
+
+**Example: Download a subset of data**
+
+You can use the `query` command to select a subset of series and pipe the result to the `download` command.
+
+```bash
+ditag query --project-name CustomerName --targets SeriesDescription --pattern 'FLAIR' | \
+ditag project download --project-name CustomerName --threads 4 --output /mnt/Download --input -
+```
+The `--input -` tells the download command to read the CSV from stdin.
+
+You can also save the query result to a file and use it as input:
+```bash
+ditag query --project-name CustomerName --targets SeriesDescription --pattern 'FLAIR' --output flair_series.csv
+ditag project download --project-name CustomerName --input flair_series.csv --output /mnt/Download/
+```
+
+### `query` with projects
+
+The `query` command can also be used with projects by providing the `--project-name` option.
+
+**Example:**
+
+```bash
+ditag query --project-name CustomerName --targets SeriesDescription --pattern 'T1' --output t1_series.csv
 ```

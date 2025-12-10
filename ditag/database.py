@@ -73,3 +73,33 @@ def insert_dicom_metadata(conn, metadata):
         ''', (series_id, metadata['SOPInstanceUID'], metadata['file_path']))
         
         conn.commit()
+
+def insert_series_metadata(conn, metadata):
+    """Inserts DICOM series metadata into the database."""
+    with db_lock:
+        cursor = conn.cursor()
+        
+        # Insert or get series
+        cursor.execute('''
+            SELECT id FROM series WHERE SeriesInstanceUID = ?
+        ''', (metadata['SeriesInstanceUID'],))
+        result = cursor.fetchone()
+        
+        if not result:
+            cursor.execute('''
+                INSERT INTO series (
+                    StudyInstanceUID, SeriesInstanceUID, StudyDescription, 
+                    SeriesDescription, PatientName, PatientID, StudyDate, archive_path
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                metadata.get('StudyInstanceUID', ''),
+                metadata.get('SeriesInstanceUID', ''),
+                metadata.get('StudyDescription', ''),
+                metadata.get('SeriesDescription', ''),
+                metadata.get('PatientName', ''),
+                metadata.get('PatientID', ''),
+                metadata.get('StudyDate', ''),
+                metadata.get('archive_path', '')
+            ))
+        
+        conn.commit()
