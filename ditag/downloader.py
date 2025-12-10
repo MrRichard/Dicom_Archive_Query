@@ -5,6 +5,9 @@ from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 import csv
 import sys
+import re
+import shutil
+from pathlib import Path
 
 import click
 from pydicom import dcmread
@@ -13,23 +16,46 @@ from pynetdicom.sop_class import StudyRootQueryRetrieveInformationModelMove
 
 from . import project, database
 
+def linux_safe_name(name):
+    """Return a linux-safe version of a string."""
+    name = re.sub(r'[\s/\\?%*:|"<>]', '_', name)
+    return name
+
+def get_subject_name(ds):
+    """Return a subject name from a DICOM dataset."""
+    if 'PatientName' in ds and ds.PatientName:
+        # pydicom returns a PersonName object, which can be converted to a string
+        patient_name = str(ds.PatientName)
+        # DICOM standard for person names is LastName^FirstName^MiddleName
+        parts = patient_name.split('^')
+        if len(parts) >= 2:
+            last_name, first_name = parts[0], parts[1]
+            middle_name = parts[2] if len(parts) > 2 else ''
+            
+            # Use initial for middle name if it exists
+            middle_initial = f"_{middle_name[0]}" if middle_name else ''
+
+            return f"{first_name}{middle_initial}_{last_name}"
+
+    if 'PatientID' in ds and ds.PatientID:
+        return f"Patient_{ds.PatientID}"
+    
+    return f"Study_{ds.StudyInstanceUID}"
+
+
 def handle_store(event, output_dir):
     """Handle a C-STORE request event."""
     try:
         ds = event.dataset
         ds.file_meta = event.file_meta
 
-        # Create a directory structure
-        patient_id = ds.get("PatientID", "UNKNOWN_PATIENT")
-        study_date = ds.get("StudyDate", "UNKNOWN_DATE")
-        series_num = ds.get("SeriesNumber", "UNKNOWN_SERIES")
+        subject_name = get_subject_name(ds)
+        series_description = ds.get("SeriesDescription", "UNKNOWN_SERIES")
         
-        # Sanitize directory names
-        patient_id = "".join(c for c in patient_id if c.isalnum() or c in ('-', '_')).rstrip()
-        study_date = "".join(c for c in study_date if c.isalnum() or c in ('-', '_')).rstrip()
-        series_num = "".join(c for c in series_num if c.isalnum() or c in ('-', '_')).rstrip()
+        session_name = linux_safe_name(series_description)
+        subject_dir_name = linux_safe_name(subject_name)
 
-        series_dir = os.path.join(output_dir, patient_id, study_date, f"series_{series_num}")
+        series_dir = os.path.join(output_dir, subject_dir_name, session_name)
         if not os.path.exists(series_dir):
             os.makedirs(series_dir)
 
@@ -41,12 +67,17 @@ def handle_store(event, output_dir):
         click.echo(f"Error handling C-STORE: {e}")
         return 0xA700 # Out of resources
 
-def run_scp(ae, output_dir, scp_port):
+def run_scp(ae, output_dir, scp_port, stop_event):
     """Run the C-STORE SCP."""
     handlers = [(evt.EVT_C_STORE, handle_store, [output_dir])]
     
     ae.supported_contexts = AllStoragePresentationContexts
-    ae.start_server(("", scp_port), block=True, evt_handlers=handlers)
+    
+    # Start the server and listen for the stop event
+    with ae.start_server(("", scp_port), block=False, evt_handlers=handlers) as scp:
+        stop_event.wait() # Block until the stop event is set
+        scp.shutdown()
+
 
 def download_series(series_info, pacs_config, my_aet, scp_port):
     """Send a C-MOVE request for a single series."""
@@ -73,7 +104,7 @@ def download_series(series_info, pacs_config, my_aet, scp_port):
         click.echo("Failed to associate with PACS for C-MOVE.")
 
 
-def download_project(project_name, threads, output, my_aet, scp_port, input_file=None):
+def download_project(project_name, threads, output, my_aet, scp_port, zip_project, input_file=None):
     """Download all series for a project."""
     proj_config = project.get_project_config(project_name)
     if not proj_config:
@@ -87,14 +118,15 @@ def download_project(project_name, threads, output, my_aet, scp_port, input_file
 
     # Create output directory
     date_str = datetime.now().strftime('%Y%m%d')
-    output_dir = os.path.join(output, f"{project_name}_{date_str}")
+    safe_project_name = linux_safe_name(project_name)
+    output_dir = os.path.join(output, f"{safe_project_name}_{date_str}")
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
     # Start SCP in a background thread
     scp_ae = AE(ae_title=my_aet)
-    scp_thread = threading.Thread(target=run_scp, args=(scp_ae, output_dir, scp_port))
-    scp_thread.daemon = True
+    stop_event = threading.Event()
+    scp_thread = threading.Thread(target=run_scp, args=(scp_ae, output_dir, scp_port, stop_event))
     scp_thread.start()
     click.echo(f"SCP server started on port {scp_port} with AE title {my_aet}")
 
@@ -111,13 +143,17 @@ def download_project(project_name, threads, output, my_aet, scp_port, input_file
         if input_file == '-':
             reader = csv.reader(sys.stdin)
         else:
-            reader = csv.reader(open(input_file, 'r'))
-        
+            f = open(input_file, 'r')
+            reader = csv.reader(f)
+            
         header = next(reader)
         uid_col = header.index('SeriesInstanceUID')
         for row in reader:
             uids_to_download.add(row[uid_col])
         
+        if input_file != '-':
+            f.close()
+
         series_to_download = [s for s in all_series if s['SeriesInstanceUID'] in uids_to_download]
         click.echo(f"Found {len(series_to_download)} series to download from input file.")
 
@@ -131,10 +167,20 @@ def download_project(project_name, threads, output, my_aet, scp_port, input_file
 
     click.echo("All download requests sent. Waiting for SCP to receive files...")
     
-    # Give some time for files to be received. A more robust solution would be to
-    # monitor the SCP thread or check for incoming files.
-    time.sleep(10)
+    # Give a moment for the last few files to arrive
+    time.sleep(5) 
     
-    # The SCP runs in a daemon thread, so it will exit when the main thread exits.
-    # We could implement a more graceful shutdown.
+    # Gracefully shut down the SCP
+    stop_event.set()
+    scp_thread.join()
+    
+    if zip_project:
+        click.echo("Zipping subject directories...")
+        output_path = Path(output_dir)
+        for subject_dir in output_path.iterdir():
+            if subject_dir.is_dir():
+                shutil.make_archive(str(subject_dir), 'zip', subject_dir)
+                shutil.rmtree(subject_dir)
+        click.echo("Zipping complete.")
+
     click.echo("Download process finished.")

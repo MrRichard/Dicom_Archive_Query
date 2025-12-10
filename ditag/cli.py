@@ -104,9 +104,10 @@ project_group.add_command(query)
 @click.option('--my-aet', default='DITAG', help='My AE Title for the SCP.')
 @click.option('--scp-port', default=11112, type=int, help='Port for the SCP.')
 @click.option('--input', type=click.Path(exists=True, dir_okay=False), help='Input file with series to download (CSV).')
-def project_download(project_name, threads, output, my_aet, scp_port, input):
+@click.option('--zip-project', is_flag=True, help='Zip the downloaded files by subject.')
+def project_download(project_name, threads, output, my_aet, scp_port, input, zip_project):
     """Download data for a project from PACS."""
-    downloader.download_project(project_name, threads, output, my_aet, scp_port, input)
+    downloader.download_project(project_name, threads, output, my_aet, scp_port, zip_project, input)
 
 @cli.command()
 @click.option('--destination', help='PACS destination address.')
