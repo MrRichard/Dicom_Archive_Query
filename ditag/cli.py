@@ -56,11 +56,19 @@ def project_group():
 @click.option('--port', required=True, type=int, help='PACS port for project-based indexing.')
 @click.option('--aetitle', required=True, help='PACS AE title for project-based indexing.')
 @click.option('--target-list', required=True, type=click.Path(exists=True, dir_okay=False), help='Text file with list of accession numbers for project-based indexing.')
+@click.option('--start-at-line', type=int, help='Line number to start indexing from.')
+@click.option('--start-at-accession', help='Accession number to start indexing from.')
 @click.pass_context
-def project_index(ctx, project_name, pacs, port, aetitle, target_list):
+def project_index(ctx, project_name, pacs, port, aetitle, target_list, start_at_line, start_at_accession):
     """Index a project from PACS."""
+    if start_at_line and start_at_accession:
+        raise click.UsageError('Cannot use --start-at-line and --start-at-accession at the same time.')
+    
     click.echo(f"Creating project '{project_name}'...")
     proj_config = project.create_project(project_name, pacs, port, aetitle, target_list)
+
+    proj_config['start_at_line'] = start_at_line
+    proj_config['start_at_accession'] = start_at_accession
     
     click.echo(f"Indexing project '{project_name}' from PACS...")
     indexer.index_pacs(proj_config)

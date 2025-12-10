@@ -105,6 +105,8 @@ def index_pacs(proj_config):
     db_path = proj_config['database_path']
     pacs_config = proj_config['pacs']
     target_list_path = proj_config['target_list']
+    start_at_line = proj_config.get('start_at_line')
+    start_at_accession = proj_config.get('start_at_accession')
 
     conn = database.get_db_connection(db_path)
     database.create_tables(conn)
@@ -112,6 +114,21 @@ def index_pacs(proj_config):
 
     with open(target_list_path, 'r') as f:
         accession_numbers = [line.strip() for line in f if line.strip()]
+    
+    if start_at_line is not None:
+        if 1 <= start_at_line <= len(accession_numbers):
+            accession_numbers = accession_numbers[start_at_line - 1:]
+            click.echo(f"Starting at line {start_at_line}.")
+        else:
+            click.echo(f"Warning: --start-at-line value {start_at_line} is out of range. Indexing from the beginning.")
+    
+    if start_at_accession is not None:
+        try:
+            start_index = accession_numbers.index(start_at_accession)
+            accession_numbers = accession_numbers[start_index:]
+            click.echo(f"Starting at accession number {start_at_accession}.")
+        except ValueError:
+            click.echo(f"Warning: Accession number '{start_at_accession}' not found in the target list. Indexing from the beginning.")
 
     ae = AE()
     ae.add_requested_context(StudyRootQueryRetrieveInformationModelFind)
@@ -166,7 +183,7 @@ def index_pacs(proj_config):
                     conn = database.get_db_connection(db_path)
                     for (status, identifier) in series_responses:
                         if status.Status in (0xFF00, 0xFF01):
-                            if identifier:
+                            if identifier and 'SeriesInstanceUID' in identifier:
                                 metadata = {
                                     'StudyInstanceUID': study_uid,
                                     'SeriesInstanceUID': identifier.SeriesInstanceUID,
@@ -178,6 +195,8 @@ def index_pacs(proj_config):
                                     'archive_path': f"pacs://{pacs_config['aetitle']}",
                                 }
                                 database.insert_series_metadata(conn, metadata)
+                            elif identifier:
+                                click.echo(f"Warning: Series found for study {study_uid} but it is missing SeriesInstanceUID. Skipping.")
                         elif status.Status != 0:
                             click.echo(f"Series C-FIND failed for study {study_uid} with status: {status.Status:04x}")
                     conn.close()
