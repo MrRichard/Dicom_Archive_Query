@@ -163,7 +163,6 @@ def index_pacs(proj_config):
                     if status.Status in (0xFF00, 0xFF01): # Pending
                         if identifier and 'StudyInstanceUID' in identifier:
                             study_uid = identifier.StudyInstanceUID
-                            break # Found it
                     elif status.Status != 0:
                         click.echo(f"C-FIND failed for {acc_num} with status: {status.Status:04x}")
                 
