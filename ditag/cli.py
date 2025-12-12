@@ -43,7 +43,7 @@ def index(ctx, archive, append, threads):
     
     indexer.index_archive(archive, db_path, append, threads)
     config.save_config(cfg, ctx.obj['config_file'])
-    click.echo(f"Configuration saved to {ctx.obj['config_file']}")
+    click.echo(f"Configuration saved to {ctx.obj['config_file']}", err=True)
 
 @cli.group(cls=NaturalOrderGroup, name='project')
 def project_group():
@@ -64,15 +64,15 @@ def project_index(ctx, project_name, pacs, port, aetitle, target_list, start_at_
     if start_at_line and start_at_accession:
         raise click.UsageError('Cannot use --start-at-line and --start-at-accession at the same time.')
     
-    click.echo(f"Creating project '{project_name}'...")
+    click.echo(f"Creating project '{project_name}'...", err=True)
     proj_config = project.create_project(project_name, pacs, port, aetitle, target_list)
 
     proj_config['start_at_line'] = start_at_line
     proj_config['start_at_accession'] = start_at_accession
     
-    click.echo(f"Indexing project '{project_name}' from PACS...")
+    click.echo(f"Indexing project '{project_name}' from PACS...", err=True)
     indexer.index_pacs(proj_config)
-    click.echo("Project indexing complete.")
+    click.echo("Project indexing complete.", err=True)
 
 @project_group.command(name='report')
 @click.option('--project-name', required=True, help='Project name to generate report for.')
@@ -139,11 +139,11 @@ def send(ctx, destination, port, pacs_aetitle, myaet, input):
         try:
             p = int(port_str)
         except (ValueError, TypeError):
-            click.echo(f"Error: Invalid port value '{port_str}'. Port must be an integer.")
+            click.echo(f"Error: Invalid port value '{port_str}'. Port must be an integer.", err=True)
             return
             
     if not all([dest, p, pacs_aet]):
-        click.echo("Error: PACS destination, port, and AE title must be provided either via CLI options or in the config file.")
+        click.echo("Error: PACS destination, port, and AE title must be provided either via CLI options or in the config file.", err=True)
         return
 
     if 'PACS' not in cfg:
@@ -156,7 +156,7 @@ def send(ctx, destination, port, pacs_aetitle, myaet, input):
 
     sender.send_dicoms(db_path, my_aet, pacs_aet, dest, p, input)
     config.save_config(cfg, ctx.obj['config_file'])
-    click.echo(f"Configuration updated and saved to {ctx.obj['config_file']}")
+    click.echo(f"Configuration updated and saved to {ctx.obj['config_file']}", err=True)
 
 if __name__ == '__main__':
     cli()

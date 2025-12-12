@@ -5,6 +5,8 @@ from . import database
 from pydicom.errors import InvalidDicomError
 from concurrent.futures import ThreadPoolExecutor
 from rich.progress import Progress, BarColumn, TextColumn, TimeRemainingColumn, TaskID
+from rich.console import Console
+import sys
 import time
 from pynetdicom import AE, evt
 from pynetdicom.sop_class import StudyRootQueryRetrieveInformationModelFind
@@ -55,7 +57,7 @@ def process_subdirectory(subdirectory_path, archive_path, db_path, progress, tas
     for file_path in files:
         error = process_file(file_path, archive_path, db_path)
         if error:
-            progress.console.print(error)
+            click.echo(error, err=True)
         progress.update(task_id, advance=1)
     
     progress.update(task_id, description=f"[green]Finished: {os.path.basename(subdirectory_path)}[/green]")
@@ -63,8 +65,9 @@ def process_subdirectory(subdirectory_path, archive_path, db_path, progress, tas
 
 def index_archive(archive_path, db_path, append=False, threads=4):
     """Indexes the DICOM files in the archive path and stores the metadata in the database."""
+    console = Console(file=sys.stderr)
     if not os.path.exists(archive_path):
-        click.echo(f"Error: Archive path not found at {archive_path}")
+        click.echo(f"Error: Archive path not found at {archive_path}", err=True)
         return
 
     conn = database.get_db_connection(db_path)
@@ -72,16 +75,16 @@ def index_archive(archive_path, db_path, append=False, threads=4):
         database.create_tables(conn)
     conn.close()
 
-    click.echo("Finding subdirectories to index...")
+    click.echo("Finding subdirectories to index...", err=True)
     subdirectories = get_subdirectories(archive_path)
     
     if not subdirectories:
-        click.echo("No subdirectories with files found to index.")
+        click.echo("No subdirectories with files found to index.", err=True)
         return
 
-    click.echo(f"{len(subdirectories)} subdirectories found.")
+    click.echo(f"{len(subdirectories)} subdirectories found.", err=True)
     if not click.confirm("Do you want to proceed with indexing?"):
-        click.echo("Indexing cancelled.")
+        click.echo("Indexing cancelled.", err=True)
         return
 
     with Progress(
@@ -91,6 +94,7 @@ def index_archive(archive_path, db_path, append=False, threads=4):
         "•",
         TimeRemainingColumn(),
         transient=True,
+        console=console,
     ) as progress:
         with ThreadPoolExecutor(max_workers=threads) as executor:
             tasks = {executor.submit(process_subdirectory, subdir, archive_path, db_path, progress, progress.add_task(f"Queued: {os.path.basename(subdir)}", total=1)): subdir for subdir in subdirectories}
@@ -98,10 +102,11 @@ def index_archive(archive_path, db_path, append=False, threads=4):
             for future in tasks:
                 future.result() # wait for all tasks to complete
 
-    click.echo(f"Indexing complete. Database updated at {db_path}")
+    click.echo(f"Indexing complete. Database updated at {db_path}", err=True)
 
 def index_pacs(proj_config):
     """Indexes a project from a PACS based on a list of accession numbers."""
+    console = Console(file=sys.stderr)
     db_path = proj_config['database_path']
     pacs_config = proj_config['pacs']
     target_list_path = proj_config['target_list']
@@ -118,17 +123,17 @@ def index_pacs(proj_config):
     if start_at_line is not None:
         if 1 <= start_at_line <= len(accession_numbers):
             accession_numbers = accession_numbers[start_at_line - 1:]
-            click.echo(f"Starting at line {start_at_line}.")
+            click.echo(f"Starting at line {start_at_line}.", err=True)
         else:
-            click.echo(f"Warning: --start-at-line value {start_at_line} is out of range. Indexing from the beginning.")
+            click.echo(f"Warning: --start-at-line value {start_at_line} is out of range. Indexing from the beginning.", err=True)
     
     if start_at_accession is not None:
         try:
             start_index = accession_numbers.index(start_at_accession)
             accession_numbers = accession_numbers[start_index:]
-            click.echo(f"Starting at accession number {start_at_accession}.")
+            click.echo(f"Starting at accession number {start_at_accession}.", err=True)
         except ValueError:
-            click.echo(f"Warning: Accession number '{start_at_accession}' not found in the target list. Indexing from the beginning.")
+            click.echo(f"Warning: Accession number '{start_at_accession}' not found in the target list. Indexing from the beginning.", err=True)
 
     ae = AE()
     ae.add_requested_context(StudyRootQueryRetrieveInformationModelFind)
@@ -136,7 +141,7 @@ def index_pacs(proj_config):
     assoc = ae.associate(pacs_config['host'], int(pacs_config['port']), ae_title=pacs_config['aetitle'])
 
     if assoc.is_established:
-        click.echo("PACS association established.")
+        click.echo("PACS association established.", err=True)
 
         with Progress(
             TextColumn("[bold blue]{task.description}", justify="right"),
@@ -145,11 +150,12 @@ def index_pacs(proj_config):
             "•",
             TimeRemainingColumn(),
             transient=True,
+            console=console,
         ) as progress:
             task = progress.add_task("[cyan]Querying PACS...", total=len(accession_numbers))
 
             for acc_num in accession_numbers:
-                progress.update(task, advance=1, description=f"[cyan]Querying acc: {acc_num}")
+                progress.update(task, advance=1, description=f"[cyan]Queryy acc: {acc_num}")
 
                 # Find StudyInstanceUID for the accession number
                 study_uid = None
@@ -164,7 +170,7 @@ def index_pacs(proj_config):
                         if identifier and 'StudyInstanceUID' in identifier:
                             study_uid = identifier.StudyInstanceUID
                     elif status.Status != 0:
-                        click.echo(f"C-FIND failed for {acc_num} with status: {status.Status:04x}")
+                        click.echo(f"C-FIND failed for {acc_num} with status: {status.Status:04x}", err=True)
                 
                 if study_uid:
                     # Now find series for this study
@@ -195,12 +201,12 @@ def index_pacs(proj_config):
                                 }
                                 database.insert_series_metadata(conn, metadata)
                             elif identifier:
-                                click.echo(f"Warning: Series found for study {study_uid} but it is missing SeriesInstanceUID. Skipping.")
+                                click.echo(f"Warning: Series found for study {study_uid} but it is missing SeriesInstanceUID. Skipping.", err=True)
                         elif status.Status != 0:
-                            click.echo(f"Series C-FIND failed for study {study_uid} with status: {status.Status:04x}")
+                            click.echo(f"Series C-FIND failed for study {study_uid} with status: {status.Status:04x}", err=True)
                     conn.close()
 
         assoc.release()
-        click.echo("PACS association released.")
+        click.echo("PACS association released.", err=True)
     else:
-        click.echo("Failed to associate with PACS.")
+        click.echo("Failed to associate with PACS.", err=True)

@@ -64,7 +64,7 @@ def handle_store(event, output_dir):
         
         return 0x0000  # Success
     except Exception as e:
-        click.echo(f"Error handling C-STORE: {e}")
+        click.echo(f"Error handling C-STORE: {e}", err=True)
         return 0xA700 # Out of resources
 
 def run_scp(ae, output_dir, scp_port, stop_event):
@@ -97,23 +97,23 @@ def download_series(series_info, pacs_config, my_aet, scp_port):
         for (status, identifier) in responses:
             if status:
                 if status.Status not in (0xFF00, 0x0000): # Pending or Success
-                    click.echo(f"C-MOVE failed for {series_info['SeriesInstanceUID']} with status: {status.Status:04x}")
+                    click.echo(f"C-MOVE failed for {series_info['SeriesInstanceUID']} with status: {status.Status:04x}", err=True)
 
         assoc.release()
     else:
-        click.echo("Failed to associate with PACS for C-MOVE.")
+        click.echo("Failed to associate with PACS for C-MOVE.", err=True)
 
 
 def download_project(project_name, threads, output, my_aet, scp_port, zip_project, input_file=None):
     """Download all series for a project."""
     proj_config = project.get_project_config(project_name)
     if not proj_config:
-        click.echo(f"Project '{project_name}' not found.")
+        click.echo(f"Project '{project_name}' not found.", err=True)
         return
 
     db_path = proj_config['database_path']
     if not os.path.exists(db_path):
-        click.echo(f"Database for project '{project_name}' not found.")
+        click.echo(f"Database for project '{project_name}' not found.", err=True)
         return
 
     # Create output directory
@@ -128,7 +128,7 @@ def download_project(project_name, threads, output, my_aet, scp_port, zip_projec
     stop_event = threading.Event()
     scp_thread = threading.Thread(target=run_scp, args=(scp_ae, output_dir, scp_port, stop_event))
     scp_thread.start()
-    click.echo(f"SCP server started on port {scp_port} with AE title {my_aet}")
+    click.echo(f"SCP server started on port {scp_port} with AE title {my_aet}", err=True)
 
     # Get series to download
     conn = database.get_db_connection(db_path)
@@ -155,7 +155,7 @@ def download_project(project_name, threads, output, my_aet, scp_port, zip_projec
             f.close()
 
         series_to_download = [s for s in all_series if s['SeriesInstanceUID'] in uids_to_download]
-        click.echo(f"Found {len(series_to_download)} series to download from input file.")
+        click.echo(f"Found {len(series_to_download)} series to download from input file.", err=True)
 
 
     pacs_config = proj_config['pacs']
@@ -165,7 +165,7 @@ def download_project(project_name, threads, output, my_aet, scp_port, zip_projec
         for future in futures:
             future.result() # wait for all downloads to be initiated
 
-    click.echo("All download requests sent. Waiting for SCP to receive files...")
+    click.echo("All download requests sent. Waiting for SCP to receive files...", err=True)
     
     # Give a moment for the last few files to arrive
     time.sleep(5) 
@@ -175,12 +175,12 @@ def download_project(project_name, threads, output, my_aet, scp_port, zip_projec
     scp_thread.join()
     
     if zip_project:
-        click.echo("Zipping subject directories...")
+        click.echo("Zipping subject directories...", err=True)
         output_path = Path(output_dir)
         for subject_dir in output_path.iterdir():
             if subject_dir.is_dir():
                 shutil.make_archive(str(subject_dir), 'zip', subject_dir)
                 shutil.rmtree(subject_dir)
-        click.echo("Zipping complete.")
+        click.echo("Zipping complete.", err=True)
 
-    click.echo("Download process finished.")
+    click.echo("Download process finished.", err=True)

@@ -36,7 +36,7 @@ def send_dicoms(db_path, myaet, pacs_aet, destination, port, input_file=None):
                 series_uids.append(row[5])
 
     if not series_uids:
-        click.echo("No series to send.")
+        click.echo("No series to send.", err=True)
         return
 
     conn = database.get_db_connection(db_path)
@@ -59,11 +59,11 @@ def send_dicoms(db_path, myaet, pacs_aet, destination, port, input_file=None):
                 ds = pydicom.dcmread(file_path[0], stop_before_pixels=True)
                 sop_classes.add(ds.SOPClassUID)
             except Exception as e:
-                click.echo(f"Could not read SOP Class from {file_path[0]}: {e}")
+                click.echo(f"Could not read SOP Class from {file_path[0]}: {e}", err=True)
 
     ae.requested_contexts = [build_context(sop) for sop in sop_classes]
     if not ae.requested_contexts:
-        click.echo("No valid SOP classes found for the series to be sent. Aborting.")
+        click.echo("No valid SOP classes found for the series to be sent. Aborting.", err=True)
         conn.close()
         return
 
@@ -83,14 +83,14 @@ def send_dicoms(db_path, myaet, pacs_aet, destination, port, input_file=None):
                     ds = pydicom.dcmread(file_path)
                     status = assoc.send_c_store(ds)
                     if status:
-                        click.echo(f"C-STORE request status: 0x{status.Status:04x} for {file_path}")
+                        click.echo(f"C-STORE request status: 0x{status.Status:04x} for {file_path}", err=True)
                     else:
-                        click.echo(f"Connection timed out, was aborted or received invalid response for {file_path}")
+                        click.echo(f"Connection timed out, was aborted or received invalid response for {file_path}", err=True)
                 except Exception as e:
-                    click.echo(f"Error sending {file_path}: {e}")
+                    click.echo(f"Error sending {file_path}: {e}", err=True)
         
         assoc.release()
     else:
-        click.echo("Association rejected, aborted or never connected")
+        click.echo("Association rejected, aborted or never connected", err=True)
 
     conn.close()
