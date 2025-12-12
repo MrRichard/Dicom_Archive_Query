@@ -11,10 +11,12 @@ from pathlib import Path
 
 import click
 from pydicom.dataset import Dataset, FileMetaDataset
-from pynetdicom import AE, evt, AllStoragePresentationContexts, ALL_TRANSFER_SYNTAXES
+from pynetdicom import AE, evt, AllStoragePresentationContexts, ALL_TRANSFER_SYNTAXES, debug_logger
 from pynetdicom.sop_class import StudyRootQueryRetrieveInformationModelMove
 
 from . import project, database
+
+debug_logger()
 
 def linux_safe_name(name):
     """Return a linux-safe version of a string."""
@@ -91,7 +93,7 @@ def download_series(series_info, pacs_config, my_aet, scp_port):
     ae.add_requested_context(StudyRootQueryRetrieveInformationModelMove)
     
     click.echo(f"Requesting association with {pacs_config['host']}:{pacs_config['port']} (AET: {pacs_config['aetitle']})", err=True)
-    assoc = ae.associate(pacs_config['host'], int(pacs_config['port']), ae_title=pacs_config['aetitle'], evt_handlers=handlers, debug_logger=click.echo)
+    assoc = ae.associate(pacs_config['host'], int(pacs_config['port']), ae_title=pacs_config['aetitle'], evt_handlers=handlers)
     
     if assoc.is_established:
         click.echo("Association established.", err=True)
