@@ -10,7 +10,7 @@ import shutil
 from pathlib import Path
 
 import click
-from pydicom import dcmread
+from pydicom.dataset import Dataset, FileMetaDataset
 from pynetdicom import AE, evt, AllStoragePresentationContexts, ALL_TRANSFER_SYNTAXES
 from pynetdicom.sop_class import StudyRootQueryRetrieveInformationModelMove
 
@@ -95,7 +95,15 @@ def download_series(series_info, pacs_config, my_aet, scp_port):
     
     if assoc.is_established:
         click.echo("Association established.", err=True)
-        ds = dcmread()
+        ds = Dataset()
+        ds.SOPClassUID = StudyRootQueryRetrieveInformationModelMove
+        ds.SOPInstanceUID = '1.2.826.0.1.3680043.2.1143.1.1.0.0.0' #dummy UID
+        
+        # Create a file meta dataset
+        ds.file_meta = FileMetaDataset()
+        ds.file_meta.MediaStorageSOPClassUID = ds.SOPClassUID
+        ds.file_meta.MediaStorageSOPInstanceUID = ds.SOPInstanceUID
+        ds.file_meta.TransferSyntaxUID = ALL_TRANSFER_SYNTAXES[0]
         ds.QueryRetrieveLevel = 'SERIES'
         ds.StudyInstanceUID = series_info['StudyInstanceUID']
         ds.SeriesInstanceUID = series_info['SeriesInstanceUID']
