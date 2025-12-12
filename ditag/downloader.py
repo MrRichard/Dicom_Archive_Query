@@ -81,27 +81,40 @@ def run_scp(ae, output_dir, scp_port, stop_event):
 
 def download_series(series_info, pacs_config, my_aet, scp_port):
     """Send a C-MOVE request for a single series."""
+
+    def on_abort(event):
+        click.echo(f"Association Aborted: {event.source} -> {event.reason}", err=True)
+
+    handlers = [(evt.EVT_ABORTED, on_abort)]
+
     ae = AE()
     ae.add_requested_context(StudyRootQueryRetrieveInformationModelMove)
     
-    assoc = ae.associate(pacs_config['host'], int(pacs_config['port']), ae_title=pacs_config['aetitle'])
+    click.echo(f"Requesting association with {pacs_config['host']}:{pacs_config['port']} (AET: {pacs_config['aetitle']})", err=True)
+    assoc = ae.associate(pacs_config['host'], int(pacs_config['port']), ae_title=pacs_config['aetitle'], evt_handlers=handlers, debug_logger=click.echo)
     
     if assoc.is_established:
+        click.echo("Association established.", err=True)
         ds = dcmread()
         ds.QueryRetrieveLevel = 'SERIES'
         ds.StudyInstanceUID = series_info['StudyInstanceUID']
         ds.SeriesInstanceUID = series_info['SeriesInstanceUID']
 
+        click.echo(f"Sending C-MOVE request for SeriesInstanceUID: {ds.SeriesInstanceUID}", err=True)
         responses = assoc.send_c_move(ds, my_aet, StudyRootQueryRetrieveInformationModelMove)
         
         for (status, identifier) in responses:
             if status:
+                click.echo(f"C-MOVE response status: {status.Status:04x}", err=True)
                 if status.Status not in (0xFF00, 0x0000): # Pending or Success
                     click.echo(f"C-MOVE failed for {series_info['SeriesInstanceUID']} with status: {status.Status:04x}", err=True)
+            else:
+                click.echo("No status returned for C-MOVE response.", err=True)
 
         assoc.release()
+        click.echo("Association released.", err=True)
     else:
-        click.echo("Failed to associate with PACS for C-MOVE.", err=True)
+        click.echo("Failed to associate with PACS for C-MOVE. Check AE titles, host, and port.", err=True)
 
 
 def download_project(project_name, threads, output, my_aet, scp_port, zip_project, input_file=None):
@@ -129,6 +142,9 @@ def download_project(project_name, threads, output, my_aet, scp_port, zip_projec
     scp_thread = threading.Thread(target=run_scp, args=(scp_ae, output_dir, scp_port, stop_event))
     scp_thread.start()
     click.echo(f"SCP server started on port {scp_port} with AE title {my_aet}", err=True)
+
+    # Give the SCP a moment to start up
+    time.sleep(1)
 
     # Get series to download
     conn = database.get_db_connection(db_path)
